@@ -1,5 +1,11 @@
+databases:
+  - name: exam-seating-db
+    databaseName: exam_seating
+    user: exam_user
+    plan: free
+
 services:
-  # Unified Full-Stack Web Service (Frontend + Backend served together)
+  # Unified Full-Stack Web Service (Frontend + Backend in one service)
   - type: web
     name: exam-seating-allotment
     runtime: node
@@ -10,15 +16,7 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DB_HOST
-        sync: false
-      - key: DB_PORT
-        value: "3306"
-      - key: DB_USER
-        sync: false
-      - key: DB_PASSWORD
-        sync: false
-      - key: DB_NAME
-        sync: false
-      - key: DB_SSL
-        value: "true"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: exam-seating-db
+          property: connectionString

@@ -4,7 +4,7 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const mysql = require('mysql2/promise');
+const { Pool } = require('pg');
 const multer = require('multer');
 const { Readable } = require('stream');
 const csv = require('csv-parser');
@@ -19,57 +19,60 @@ app.use(express.json());
 // Set up Multer for handling CSV file uploads in memory
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Database Connection Pool (Supports local MySQL / XAMPP and Cloud MySQL e.g. Aiven, TiDB, Render)
-const pool = mysql.createPool({
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : 3306,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-    ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0
-});
+// PostgreSQL Connection Pool
+// Automatically supports Render native DATABASE_URL or individual DB_* variables
+const pool = new Pool(
+    process.env.DATABASE_URL
+        ? {
+              connectionString: process.env.DATABASE_URL,
+              ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false }
+          }
+        : {
+              host: process.env.DB_HOST || 'localhost',
+              port: process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : 5432,
+              user: process.env.DB_USER || 'postgres',
+              password: process.env.DB_PASSWORD,
+              database: process.env.DB_NAME || 'exam_seating',
+              ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false
+          }
+);
 
-// Auto-initialize tables if they don't exist
+// Auto-initialize PostgreSQL tables if they don't exist
 const initDb = async () => {
     try {
         await pool.query(`
             CREATE TABLE IF NOT EXISTS rooms (
-                id INT AUTO_INCREMENT PRIMARY KEY,
+                id SERIAL PRIMARY KEY,
                 room_number VARCHAR(50) NOT NULL,
                 capacity INT NOT NULL,
                 rows_count INT NOT NULL,
                 cols_count INT NOT NULL
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            );
         `);
 
         await pool.query(`
             CREATE TABLE IF NOT EXISTS students (
-                id INT AUTO_INCREMENT PRIMARY KEY,
+                id SERIAL PRIMARY KEY,
                 roll_number VARCHAR(50) NOT NULL UNIQUE,
                 full_name VARCHAR(100) NOT NULL,
                 branch VARCHAR(50) NOT NULL,
                 semester VARCHAR(20) NOT NULL
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            );
         `);
 
         await pool.query(`
             CREATE TABLE IF NOT EXISTS allocations (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                student_id INT NOT NULL,
-                room_id INT NOT NULL,
+                id SERIAL PRIMARY KEY,
+                student_id INT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+                room_id INT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
                 seat_code VARCHAR(20) NOT NULL,
                 subject_name VARCHAR(100),
-                exam_date DATE,
-                FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
-                FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                exam_date DATE
+            );
         `);
-        console.log('✅ Database tables verified/initialized successfully');
+        console.log('✅ PostgreSQL database tables verified/initialized successfully');
     } catch (err) {
-        console.error('⚠️ Database table initialization warning:', err.message);
+        console.error('⚠️ PostgreSQL database table initialization warning:', err.message);
     }
 };
 
@@ -77,14 +80,14 @@ const initDb = async () => {
 app.get('/api/health', (req, res) => res.json({ status: 'ok', message: 'Exam Seating API is running...' }));
 
 // Test Database Connection
-pool.getConnection()
-    .then((conn) => {
-        console.log('✅ Connected to MySQL Database');
-        conn.release();
+pool.connect()
+    .then((client) => {
+        console.log('✅ Connected to PostgreSQL Database');
+        client.release();
         initDb();
     })
     .catch((err) => {
-        console.error('❌ Database connection failed:', err.message);
+        console.error('❌ PostgreSQL Database connection failed:', err.message);
     });
 
 // ==========================================
@@ -104,8 +107,13 @@ app.post('/api/rooms/upload', upload.single('file'), (req, res) => {
                 await pool.query('DELETE FROM rooms');
                 for (let room of results) {
                     await pool.query(
-                        'INSERT INTO rooms (room_number, capacity, rows_count, cols_count) VALUES (?, ?, ?, ?)',
-                        [room.room_number, room.capacity, room.rows_count, room.cols_count]
+                        'INSERT INTO rooms (room_number, capacity, rows_count, cols_count) VALUES ($1, $2, $3, $4)',
+                        [
+                            room.room_number,
+                            parseInt(room.capacity, 10),
+                            parseInt(room.rows_count, 10),
+                            parseInt(room.cols_count, 10)
+                        ]
                     );
                 }
                 res.status(200).json({ message: 'Rooms uploaded and saved successfully!' });
@@ -128,7 +136,7 @@ app.post('/api/students/upload', upload.single('file'), (req, res) => {
                 await pool.query('DELETE FROM students');
                 for (let student of results) {
                     await pool.query(
-                        'INSERT INTO students (roll_number, full_name, branch, semester) VALUES (?, ?, ?, ?)',
+                        'INSERT INTO students (roll_number, full_name, branch, semester) VALUES ($1, $2, $3, $4)',
                         [student.roll_number, student.full_name, student.branch, student.semester]
                     );
                 }
@@ -145,8 +153,8 @@ app.post('/api/allocations/generate', async (req, res) => {
 
     try {
         await pool.query('DELETE FROM allocations');
-        const [students] = await pool.query('SELECT * FROM students ORDER BY branch, roll_number');
-        const [rooms] = await pool.query('SELECT * FROM rooms ORDER BY room_number');
+        const { rows: students } = await pool.query('SELECT * FROM students ORDER BY branch, roll_number');
+        const { rows: rooms } = await pool.query('SELECT * FROM rooms ORDER BY room_number');
 
         if (students.length === 0 || rooms.length === 0) {
             return res.status(400).json({ error: 'Ensure students and rooms are uploaded first.' });
@@ -200,10 +208,19 @@ app.post('/api/allocations/generate', async (req, res) => {
         }
 
         if (allocations.length > 0) {
-            await pool.query(
-                'INSERT INTO allocations (student_id, room_id, seat_code, subject_name, exam_date) VALUES ?',
-                [allocations]
-            );
+            const valuePlaceholders = [];
+            const flatValues = [];
+            allocations.forEach((item, index) => {
+                const offset = index * 5;
+                valuePlaceholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5})`);
+                flatValues.push(...item);
+            });
+
+            const query = `
+                INSERT INTO allocations (student_id, room_id, seat_code, subject_name, exam_date)
+                VALUES ${valuePlaceholders.join(', ')}
+            `;
+            await pool.query(query, flatValues);
         }
 
         const unallocated = Object.values(branchGroups).flat().length;
@@ -230,7 +247,7 @@ app.get('/api/allocations/all', async (req, res) => {
             JOIN rooms r ON a.room_id = r.id
             ORDER BY r.room_number, a.seat_code
         `;
-        const [rows] = await pool.query(query);
+        const { rows } = await pool.query(query);
         res.json(rows);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -243,15 +260,16 @@ app.get('/api/allocations/search', async (req, res) => {
     if (!roll) return res.status(400).json({ error: 'Roll number is required' });
 
     try {
-        const [rows] = await pool.query(`
+        const query = `
             SELECT 
                 s.full_name, s.roll_number, s.branch, 
                 r.room_number, a.seat_code, a.subject_name, a.exam_date 
             FROM allocations a
             JOIN students s ON a.student_id = s.id
             JOIN rooms r ON a.room_id = r.id
-            WHERE s.roll_number = ?
-        `, [roll]);
+            WHERE s.roll_number = $1
+        `;
+        const { rows } = await pool.query(query, [roll]);
 
         if (rows.length === 0) return res.status(404).json({ error: 'No seat allocation found.' });
         res.status(200).json(rows[0]);
