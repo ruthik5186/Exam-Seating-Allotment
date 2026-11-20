@@ -1,3 +1,6 @@
+const path = require('path');
+const fs = require('fs');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -70,8 +73,8 @@ const initDb = async () => {
     }
 };
 
-// Health Check
-app.get('/', (req, res) => res.json({ status: 'ok', message: 'Exam Seating API is running...' }));
+// Health Check API
+app.get('/api/health', (req, res) => res.json({ status: 'ok', message: 'Exam Seating API is running...' }));
 
 // Test Database Connection
 pool.getConnection()
@@ -254,6 +257,22 @@ app.get('/api/allocations/search', async (req, res) => {
         res.status(200).json(rows[0]);
     } catch (error) {
         res.status(500).json({ error: 'Database error', details: error.message });
+    }
+});
+
+// Serve React frontend build (Single Web Service mode)
+const frontendDist = path.join(__dirname, '../exam-seating-frontend/dist');
+if (fs.existsSync(frontendDist)) {
+    app.use(express.static(frontendDist));
+}
+
+// Wildcard route to serve React SPA for any non-API route
+app.get('*', (req, res) => {
+    const indexPath = path.join(frontendDist, 'index.html');
+    if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+    } else {
+        res.json({ status: 'ok', message: 'Exam Seating API is running...' });
     }
 });
 

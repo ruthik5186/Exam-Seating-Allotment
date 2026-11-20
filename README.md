@@ -10,7 +10,7 @@ An automated full-stack examination hall seating allotment platform built with *
 * **Student Portal**: Self-service roll number lookup to find assigned room, seat code (`R1C1`, `R1C2`, etc.), subject, and exam date.
 * **Admin Dashboard**: Bulk upload rooms and students rosters via CSV files and trigger automatic seating allocation in one click.
 * **2D Visual Seating Map**: Visual representation of classroom arrangements color-coded by branch to inspect and verify seating patterns.
-* **Render & Cloud Ready**: Fully configured for deployment on [Render](https://render.com) using `render.yaml` Blueprint or separate Web Service / Static Site.
+* **Single Web Service Deployment**: Can be deployed as a single unified Web Service on Render (frontend and backend running together on one service) or as split services.
 
 ---
 
@@ -18,6 +18,8 @@ An automated full-stack examination hall seating allotment platform built with *
 
 ```
 .
+├── package.json                  # Root build and start scripts for unified deployment
+├── render.yaml                   # Single Web Service Render Blueprint
 ├── exam-seating-backend/         # Express & MySQL API
 │   ├── index.js                  # Main server entry & REST endpoints
 │   ├── schema.sql                # MySQL Database schema definition
@@ -37,7 +39,6 @@ An automated full-stack examination hall seating allotment platform built with *
 ├── sample_data/                  # Sample CSV files for testing
 │   ├── students.csv              # Sample student roster across multiple branches
 │   └── rooms.csv                 # Sample classroom dimensions
-├── render.yaml                   # Infrastructure-as-Code Blueprint for Render
 └── README.md
 ```
 
@@ -99,63 +100,39 @@ CREATE DATABASE exam_seating;
 
 ---
 
-## ☁️ Deploying to Render (onrender.com)
+## ☁️ Deploying as a Single Web Service on Render (onrender.com)
 
-Render supports deploying this project either automatically using the included `render.yaml` Blueprint or manually in the Render dashboard.
+Deploying as a **single Web Service** hosts the React frontend and Express backend together under one URL and consumes only **1 free service slot**!
 
-### Option A: Using Render Blueprints (Recommended)
-1. Push this repository to your GitHub account.
-2. Log into your [Render Dashboard](https://dashboard.render.com).
-3. Click **New +** > **Blueprint**.
-4. Connect your GitHub repository. Render will automatically detect `render.yaml` and configure both the backend service and frontend static site.
-5. In the Render prompt, fill in your MySQL database credentials (`DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`).
-
----
-
-### Option B: Manual Setup on Render
-
-#### Step 1: Set up a Free Cloud MySQL Database
-Render provides PostgreSQL natively, but for MySQL you can use a free cloud MySQL database:
-* [Aiven for MySQL](https://aiven.io/) (Free tier available)
+### Step 1: Set up a Free Cloud MySQL Database
+Render does not provide managed MySQL on the free tier, so you can create a free cloud MySQL database in 1 minute using:
 * [TiDB Cloud Serverless](https://tidbcloud.com/) (Free MySQL-compatible tier)
+* [Aiven for MySQL](https://aiven.io/) (Free tier)
 * [Clever Cloud](https://www.clever-cloud.com/) (Free MySQL add-on)
 
-Copy your connection details: Host, Port, User, Password, Database Name.
+Copy your **Host**, **Port**, **User**, **Password**, and **Database Name**.
 
-#### Step 2: Deploy the Backend (Web Service)
-1. On Render, click **New +** > **Web Service**.
-2. Connect your GitHub repository.
-3. Configure the service:
-   * **Name**: `exam-seating-backend`
-   * **Root Directory**: `exam-seating-backend`
+### Step 2: Deploy on Render as a Web Service
+
+1. Open your [Render Dashboard](https://dashboard.render.com).
+2. Click **New +** > **Web Service**.
+3. Select your repository: `ruthik5186/Exam-Seating-Allotment`.
+4. Configure the Web Service:
+   * **Name**: `exam-seating-allotment`
    * **Runtime**: `Node`
-   * **Build Command**: `npm install`
-   * **Start Command**: `node index.js`
-4. Under **Environment Variables**, add:
+   * **Build Command**: `npm run build`
+   * **Start Command**: `npm start`
+5. Under **Environment Variables**, add:
    * `NODE_ENV`: `production`
-   * `DB_HOST`: `<your-db-host>`
-   * `DB_PORT`: `3306` (or your cloud DB port)
+   * `DB_HOST`: `<your-cloud-mysql-host>`
+   * `DB_PORT`: `3306`
    * `DB_USER`: `<your-db-user>`
    * `DB_PASSWORD`: `<your-db-password>`
    * `DB_NAME`: `<your-db-name>`
-   * `DB_SSL`: `true` (if using cloud DB with SSL)
-5. Click **Create Web Service**. Note the deployed URL (e.g. `https://exam-seating-backend.onrender.com`).
+   * `DB_SSL`: `true`
+6. Click **Create Web Service**.
 
-#### Step 3: Deploy the Frontend (Static Site)
-1. On Render, click **New +** > **Static Site**.
-2. Connect your GitHub repository.
-3. Configure the site:
-   * **Name**: `exam-seating-frontend`
-   * **Root Directory**: `exam-seating-frontend`
-   * **Build Command**: `npm install && npm run build`
-   * **Publish Directory**: `dist`
-4. Under **Environment Variables**, add:
-   * `VITE_API_URL`: `https://exam-seating-backend.onrender.com` (your backend Render URL)
-5. Under **Redirects / Rewrites**, add:
-   * **Source**: `/*`
-   * **Destination**: `/index.html`
-   * **Action**: `Rewrite`
-6. Click **Create Static Site**.
+Render will automatically build the React frontend, package the Express server, and launch the unified full-stack application!
 
 ---
 
