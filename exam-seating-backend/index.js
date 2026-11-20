@@ -25,7 +25,9 @@ const pool = new Pool(
     process.env.DATABASE_URL
         ? {
               connectionString: process.env.DATABASE_URL,
-              ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false }
+              ssl: process.env.DATABASE_URL.includes('localhost') || process.env.DB_SSL === 'false'
+                  ? false
+                  : { rejectUnauthorized: false }
           }
         : {
               host: process.env.DB_HOST || 'localhost',
@@ -78,6 +80,7 @@ const initDb = async () => {
 
 // Health Check API
 app.get('/api/health', (req, res) => res.json({ status: 'ok', message: 'Exam Seating API is running...' }));
+app.get('/health', (req, res) => res.json({ status: 'ok', message: 'Exam Seating API is running...' }));
 
 // Test Database Connection
 pool.connect()
@@ -295,7 +298,7 @@ app.get('*', (req, res) => {
 });
 
 // Start server
-app.listen(port, () => {
+app.listen(port, '0.0.0.0', () => {
     console.log(`🚀 Server running on port ${port}`);
 });
 

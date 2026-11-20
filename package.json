@@ -4,7 +4,7 @@
   "description": "Full-stack Exam Seating Allotment Application",
   "private": true,
   "scripts": {
-    "build": "cd exam-seating-frontend && npm install && npm run build && cd ../exam-seating-backend && npm install",
+    "build": "npm --prefix exam-seating-frontend install --include=dev && npm --prefix exam-seating-frontend run build && npm --prefix exam-seating-backend install",
     "start": "node exam-seating-backend/index.js"
   }
 }
